@@ -1,0 +1,58 @@
+.places-page {
+  padding: clamp(5rem, 10vh, 7rem) 0 3rem;
+  min-height: 100vh;
+  display: flex; flex-direction: column; gap: 1.5rem;
+}
+.places-title { font-family: var(--font-display); font-size: clamp(1.5rem, 4vw, 2rem); font-weight: 700; color: var(--ink); }
+.places-sub   { font-size: 0.9rem; color: var(--ink-2); }
+
+.places-search {
+  width: 100%; padding: 12px 16px;
+  border: 1.5px solid var(--sand-2); border-radius: var(--radius-md);
+  font-size: 0.95rem; background: var(--white);
+  color: var(--ink); outline: none; transition: var(--transition);
+}
+.places-search:focus { border-color: var(--amber); }
+
+.places-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.places-tag {
+  padding: 6px 14px; border-radius: 100px;
+  border: 1.5px solid var(--sand-2); background: var(--white);
+  font-size: 0.8rem; font-weight: 500; color: var(--ink-2);
+  cursor: pointer; transition: var(--transition);
+}
+.places-tag:hover  { border-color: var(--amber); color: var(--ink); }
+.places-tag.active { background: var(--amber); border-color: var(--amber); color: white; font-weight: 700; }
+
+.places-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: clamp(0.75rem, 2vw, 1rem);
+}
+.place-dest-card {
+  background: var(--white); border-radius: var(--radius-lg);
+  padding: clamp(1rem, 2.5vw, 1.5rem);
+  border: 1.5px solid var(--sand-2); box-shadow: var(--shadow-sm);
+  display: flex; flex-direction: column; gap: 8px;
+  transition: var(--transition);
+  animation: spotIn 0.3s ease both;
+}
+.place-dest-card:hover { border-color: var(--amber); transform: translateY(-3px); box-shadow: var(--shadow-md); }
+
+.place-dest-card__emoji { font-size: clamp(1.8rem, 4vw, 2.2rem); }
+.place-dest-card__info h4 { font-size: clamp(0.9rem, 2vw, 1rem); font-weight: 700; color: var(--ink); }
+.place-dest-card__info span { font-size: 0.75rem; color: var(--ink-2); }
+.place-dest-card__tag {
+  display: inline-block; padding: 3px 10px;
+  background: var(--sand); border-radius: 100px;
+  font-size: 0.7rem; font-weight: 600; color: var(--teal);
+  align-self: flex-start;
+}
+.place-dest-card__btn {
+  margin-top: auto; padding: 8px 0;
+  background: var(--ink); color: white;
+  border: none; border-radius: 100px;
+  font-size: 0.82rem; font-weight: 700;
+  cursor: pointer; transition: var(--transition);
+}
+.place-dest-card__btn:hover { background: var(--amber); }
