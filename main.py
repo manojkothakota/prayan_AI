@@ -126,7 +126,7 @@ def ping():
 @app.post("/spots")
 def get_spots(req: PlaceRequest):
     raw = ask(
-        "You are a travel guide. Reply with ONLY 6 famous tourist spots in the given place. One name per line. No numbers, no descriptions, just names.",
+        "You are a travel guide. Reply with ONLY all famous tourist spots in the given place. One name per line. No numbers, no descriptions, just names.",
         req.place, req.lang
     )
     spots = [s.strip() for s in raw.split("\n") if s.strip()][:6]
@@ -162,9 +162,9 @@ Spots: {json.dumps(req.selected_spots)}""", 'en', 'heavy'  # coords always in En
 def get_budget(req: SpotsRequest):
     raw = ask(
         """Travel budget planner. Give exactly 3 budget tiers. Reply ONLY in this format:
-1. Budget    - <description> - Est. $XX/day
-2. Mid-range - <description> - Est. $XX/day
-3. Luxury    - <description> - Est. $XX/day""",
+1. Budget    - <description> - Est. XX/day in indian rupees
+2. Mid-range - <description> - Est. XX/day in indian rupees
+3. Luxury    - <description> - Est. XX/day in indian rupees""",
         f"Destination: {req.place}. Spots: {', '.join(req.selected_spots)}", req.lang
     )
     budgets = [b.strip() for b in raw.split("\n") if b.strip()]
@@ -189,14 +189,14 @@ def get_transport(req: PlaceRequest):
 Reply ONLY with this JSON:
 {{
   "to_destination": {{
-    "bus":  {{"available": true, "duration": "X hrs", "cost": "$XX", "frequency": "every X hrs", "tip": "..."}},
-    "rail": {{"available": true, "duration": "X hrs", "cost": "$XX", "frequency": "X trains/day", "tip": "..."}},
-    "air":  {{"available": true, "duration": "X hrs", "cost": "$XX", "frequency": "X flights/day", "tip": "..."}}
+    "bus":  {{"available": true, "duration": "X hrs", "cost": "XX in indian rupees", "frequency": "every X hrs", "tip": "..."}},
+    "rail": {{"available": true, "duration": "X hrs", "cost": "XX in indian rupees", "frequency": "X trains/day", "tip": "..."}},
+    "air":  {{"available": true, "duration": "X hrs", "cost": "XX in indian rupees", "frequency": "X flights/day", "tip": "..."}}
   }},
   "within_destination": {{
-    "bus":       {{"available": true, "cost_per_day": "$XX", "tip": "..."}},
-    "rail":      {{"available": true, "cost_per_day": "$XX", "tip": "..."}},
-    "auto_taxi": {{"available": true, "cost_per_day": "$XX", "tip": "..."}}
+    "bus":       {{"available": true, "cost_per_day": "XX in indian rupees", "tip": "..."}},
+    "rail":      {{"available": true, "cost_per_day": "XX in indian rupees", "tip": "..."}},
+    "auto_taxi": {{"available": true, "cost_per_day": "XX in indian rupees", "tip": "..."}}
   }}
 }}""", req.lang
     )
