@@ -109,7 +109,7 @@ function AppInner() {
 
         <footer className="footer">
           <div className="container footer__inner">
-            <span>© 2025 AI Tour Guider · Built with Groq + FastAPI + React + Supabase</span>
+            <span>© 2026 PRAYAN AI. Powered by Groq · Kothakota Manoj</span>
           </div>
         </footer>
       </>
