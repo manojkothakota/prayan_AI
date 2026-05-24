@@ -126,7 +126,7 @@ def ping():
 @app.post("/spots")
 def get_spots(req: PlaceRequest):
     raw = ask(
-        "You are a travel guide. Reply with ONLY all famous tourist spots in the given place. One name per line. No numbers, no descriptions, just names.",
+        "You are a travel guide. Reply with ONLY 6 famous tourist spots in the given place. One name per line. No numbers, no descriptions, just names.",
         req.place, req.lang
     )
     spots = [s.strip() for s in raw.split("\n") if s.strip()][:6]
@@ -162,9 +162,9 @@ Spots: {json.dumps(req.selected_spots)}""", 'en', 'heavy'  # coords always in En
 def get_budget(req: SpotsRequest):
     raw = ask(
         """Travel budget planner. Give exactly 3 budget tiers. Reply ONLY in this format:
-1. Budget    - <description> - Est. XX/day in indian rupees
-2. Mid-range - <description> - Est. XX/day in indian rupees
-3. Luxury    - <description> - Est. XX/day in indian rupees""",
+1. Budget    - <description> - Est. $XX/day
+2. Mid-range - <description> - Est. $XX/day
+3. Luxury    - <description> - Est. $XX/day""",
         f"Destination: {req.place}. Spots: {', '.join(req.selected_spots)}", req.lang
     )
     budgets = [b.strip() for b in raw.split("\n") if b.strip()]
@@ -189,14 +189,14 @@ def get_transport(req: PlaceRequest):
 Reply ONLY with this JSON:
 {{
   "to_destination": {{
-    "bus":  {{"available": true, "duration": "X hrs", "cost": "XX in indian rupees", "frequency": "every X hrs", "tip": "..."}},
-    "rail": {{"available": true, "duration": "X hrs", "cost": "XX in indian rupees", "frequency": "X trains/day", "tip": "..."}},
-    "air":  {{"available": true, "duration": "X hrs", "cost": "XX in indian rupees", "frequency": "X flights/day", "tip": "..."}}
+    "bus":  {{"available": true, "duration": "X hrs", "cost": "$XX", "frequency": "every X hrs", "tip": "..."}},
+    "rail": {{"available": true, "duration": "X hrs", "cost": "$XX", "frequency": "X trains/day", "tip": "..."}},
+    "air":  {{"available": true, "duration": "X hrs", "cost": "$XX", "frequency": "X flights/day", "tip": "..."}}
   }},
   "within_destination": {{
-    "bus":       {{"available": true, "cost_per_day": "XX in indian rupees", "tip": "..."}},
-    "rail":      {{"available": true, "cost_per_day": "XX in indian rupees", "tip": "..."}},
-    "auto_taxi": {{"available": true, "cost_per_day": "XX in indian rupees", "tip": "..."}}
+    "bus":       {{"available": true, "cost_per_day": "$XX", "tip": "..."}},
+    "rail":      {{"available": true, "cost_per_day": "$XX", "tip": "..."}},
+    "auto_taxi": {{"available": true, "cost_per_day": "$XX", "tip": "..."}}
   }}
 }}""", req.lang
     )
@@ -318,24 +318,31 @@ class PastProblemsRequest(BaseModel):
 
 @app.post("/save-trip")
 def save_trip(req: SaveTripRequest):
-    # Save trip
-    trip = sb.table("trips").insert({
-        "user_id":       req.user_id,
-        "place":         req.place,
-        "optimal_route": req.optimal_route,
-        "budget":        req.budget,
-        "days":          req.days,
-        "transport":     req.transport,
-        "lang":          req.lang,
-    }).execute()
+    try:
+        # Save trip
+        trip = sb.table("trips").insert({
+            "user_id":       req.user_id,
+            "place":         req.place,
+            "optimal_route": req.optimal_route,
+            "budget":        req.budget,
+            "days":          req.days,
+            "transport":     req.transport,
+            "lang":          req.lang,
+        }).execute()
 
-    trip_id = trip.data[0]["id"]
+        if not trip.data:
+            return {"error": "Failed to save trip", "detail": str(trip)}
 
-    # Save each spot
-    spots = [{"trip_id": trip_id, "spot_name": s} for s in req.optimal_route]
-    sb.table("trip_spots").insert(spots).execute()
+        trip_id = trip.data[0]["id"]
 
-    return {"trip_id": trip_id, "status": "saved"}
+        # Save each spot
+        spots = [{"trip_id": trip_id, "spot_name": s, "visited": False} for s in req.optimal_route]
+        sb.table("trip_spots").insert(spots).execute()
+
+        return {"trip_id": trip_id, "status": "saved"}
+
+    except Exception as e:
+        return {"error": str(e), "status": "failed"}
 
 @app.post("/trip-suggestions")
 def trip_suggestions(req: PastProblemsRequest):
@@ -389,3 +396,114 @@ Give a short friendly suggestion (2-3 sentences) encouraging them to visit these
         req.lang, 'light'
     )
     return {"missed": missed_names, "suggestion": suggestion}
+
+# ── Frontend Supabase proxy endpoints (bypass RLS issues) ────────────────────
+from fastapi import HTTPException
+
+class UpdateSpotRequest(BaseModel):
+    trip_id: str
+    spot_name: str
+    visited: Optional[bool] = None
+    comment: Optional[str] = None
+    photo_url: Optional[str] = None
+
+class SaveMemoryRequest(BaseModel):
+    user_id: str
+    trip_id: Optional[str] = None
+    title: str
+    description: Optional[str] = ''
+    photo_url: str
+
+@app.post("/update-spot")
+def update_spot(req: UpdateSpotRequest):
+    try:
+        # Find spot row
+        row = sb.table("trip_spots").select("id")\
+            .eq("trip_id", req.trip_id).eq("spot_name", req.spot_name).execute()
+
+        if not row.data:
+            return {"error": "Spot not found"}
+
+        spot_id = row.data[0]["id"]
+        updates = {}
+        if req.visited is not None:
+            updates["visited"] = req.visited
+            if req.visited:
+                updates["visited_at"] = "now()"
+        if req.comment is not None:
+            updates["comment"] = req.comment
+        if req.photo_url is not None:
+            updates["photo_url"] = req.photo_url
+
+        sb.table("trip_spots").update(updates).eq("id", spot_id).execute()
+        return {"status": "updated", "spot_id": spot_id}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/save-memory")
+def save_memory(req: SaveMemoryRequest):
+    try:
+        result = sb.table("memories").insert({
+            "user_id":     req.user_id,
+            "trip_id":     req.trip_id,
+            "title":       req.title,
+            "description": req.description,
+            "photo_url":   req.photo_url,
+        }).execute()
+        return {"status": "saved", "memory": result.data[0] if result.data else {}}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/get-trips/{user_id}")
+def get_trips(user_id: str):
+    try:
+        trips = sb.table("trips").select("*")\
+            .eq("user_id", user_id).order("created_at", desc=True).execute()
+        return {"trips": trips.data or []}
+    except Exception as e:
+        return {"error": str(e), "trips": []}
+
+@app.get("/get-spots/{trip_id}")
+def get_spots_for_trip(trip_id: str):
+    try:
+        spots = sb.table("trip_spots").select("*").eq("trip_id", trip_id).execute()
+        return {"spots": spots.data or []}
+    except Exception as e:
+        return {"error": str(e), "spots": []}
+
+@app.get("/get-memories/{user_id}")
+def get_memories(user_id: str):
+    try:
+        # Manual memories
+        memories = sb.table("memories").select("*")\
+            .eq("user_id", user_id).order("created_at", desc=True).execute()
+        # Trip spot photos
+        trips = sb.table("trips").select("id, place")\
+            .eq("user_id", user_id).execute()
+        trip_ids = [t["id"] for t in (trips.data or [])]
+        trip_place_map = {t["id"]: t["place"] for t in (trips.data or [])}
+
+        spot_photos = []
+        if trip_ids:
+            spots = sb.table("trip_spots").select("*")\
+                .in_("trip_id", trip_ids)\
+                .not_.is_("photo_url", "null").execute()
+            spot_photos = [{
+                "id":          f"spot-{s['id']}",
+                "title":       s["spot_name"],
+                "description": s.get("comment") or f"Visited during trip to {trip_place_map.get(s['trip_id'],'')}",
+                "photo_url":   s["photo_url"],
+                "created_at":  s.get("visited_at"),
+                "source":      "trip",
+                "place":       trip_place_map.get(s["trip_id"], "")
+            } for s in (spots.data or [])]
+
+        manual = [{**m, "source": "manual"} for m in (memories.data or [])]
+        all_memories = sorted(
+            manual + spot_photos,
+            key=lambda x: x.get("created_at") or "",
+            reverse=True
+        )
+        return {"memories": all_memories}
+    except Exception as e:
+        return {"error": str(e), "memories": []}
