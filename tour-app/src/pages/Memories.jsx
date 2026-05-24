@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase.js'
 import PhotoUpload from '../components/PhotoUpload.jsx'
 import './Memories.css'
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export default function Memories() {
   const { user }          = useAuth()
@@ -18,67 +19,40 @@ export default function Memories() {
 
   async function fetchAll() {
     setLoading(true)
-
-    // 1. Fetch manual memories
-    const { data: manualMemories } = await supabase
-      .from('memories').select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-
-    // 2. Fetch photos from trip_spots (auto-saved when ticking)
-    const { data: tripSpots } = await supabase
-      .from('trip_spots')
-      .select('id, spot_name, photo_url, comment, visited_at, trip_id')
-      .not('photo_url', 'is', null)
-      .order('visited_at', { ascending: false })
-
-    // 3. Merge both into one list
-    const spotMemories = (tripSpots || []).map(s => ({
-      id:          `spot-${s.id}`,
-      title:       s.spot_name,
-      description: s.comment || 'Visited during a trip',
-      photo_url:   s.photo_url,
-      created_at:  s.visited_at,
-      source:      'trip',
-      place:       ''
-    }))
-
-    const allMemories = [
-      ...(manualMemories || []).map(m => ({ ...m, source: 'manual' })),
-      ...spotMemories
-    ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-
-    setMemories(allMemories)
-
-    // 4. Fetch trips for dropdown
-    const { data: t } = await supabase
-      .from('trips').select('id, place').eq('user_id', user.id)
-    setTrips(t || [])
+    try {
+      const [memRes, tripRes] = await Promise.all([
+        fetch(`${API_BASE}/get-memories/${user.id}`).then(r => r.json()),
+        fetch(`${API_BASE}/get-trips/${user.id}`).then(r => r.json())
+      ])
+      setMemories(memRes.memories || [])
+      setTrips((tripRes.trips || []).map(t => ({ id: t.id, place: t.place })))
+    } catch { setMemories([]) }
     setLoading(false)
   }
 
   async function saveMemory() {
     if (!form.title || !form.photo_url) return
     setSaving(true)
-    await supabase.from('memories').insert({
-      ...form,
-      user_id:    user.id,
-      created_at: new Date().toISOString()
-    })
-    setForm({ title: '', description: '', trip_id: '', photo_url: '' })
-    setShowForm(false)
-    fetchAll()
+    try {
+      await fetch(`${API_BASE}/save-memory`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, user_id: user.id })
+      })
+      setForm({ title: '', description: '', trip_id: '', photo_url: '' })
+      setShowForm(false)
+      fetchAll()
+    } catch(e) { console.error(e) }
     setSaving(false)
   }
 
   async function deleteMemory(m) {
     if (!confirm('Delete this memory?')) return
+    const sb = (await import('../lib/supabase.js')).supabase
     if (m.source === 'manual') {
-      await supabase.from('memories').delete().eq('id', m.id)
+      await sb.from('memories').delete().eq('id', m.id)
     } else {
-      // remove photo from trip_spot
       const spotId = m.id.replace('spot-', '')
-      await supabase.from('trip_spots').update({ photo_url: null }).eq('id', spotId)
+      await sb.from('trip_spots').update({ photo_url: null }).eq('id', spotId)
     }
     fetchAll()
   }
