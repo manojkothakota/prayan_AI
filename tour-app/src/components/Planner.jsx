@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase.js'
 import { api } from '../api.js'
 import SearchBar from './SearchBar.jsx'
 import LanguagePicker from './LanguagePicker.jsx'
+import TripTracker from './TripTracker.jsx'
 import CancelTrip from './CancelTrip.jsx'
 import PlaceCard from './PlaceCard.jsx'
 import PhotoUpload from './PhotoUpload.jsx'
 import './Planner.css'
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
 
 const STEPS = ['Destination', 'Spots', 'Budget', 'Duration', 'Transport', 'Itinerary']
 
@@ -52,7 +55,7 @@ function Step0({ onNext }) {
       let missedData = { missed: [], suggestion: '' }
       if (user) {
         try {
-          const mr = await fetch('/api/missed-places', {
+          const mr = await fetch(`\${API_BASE}/missed-places`, {
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ user_id: user.id, place: data.place, lang })
           })
@@ -275,7 +278,7 @@ function Step5({ place, optimal_route, budget, days, transport, lang, onRestart 
         // 2. Auto-save trip
         if (user) {
           try {
-            const res  = await fetch('/api/save-trip', {
+            const res  = await fetch(`\${API_BASE}/save-trip`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ user_id: user.id, place, optimal_route, budget, days, transport, lang })
@@ -288,51 +291,50 @@ function Step5({ place, optimal_route, budget, days, transport, lang, onRestart 
       })
   }, [])
 
-  // Save spot visit to supabase
+  // Save spot visit to backend
   async function toggleVisit(spot) {
     const cur = spotStatus[spot]
     const newVal = !cur.visited
     setSpotStatus(p => ({ ...p, [spot]: { ...p[spot], visited: newVal } }))
-
     if (tripId) {
-      const { data: row } = await supabase.from('trip_spots')
-        .select('id').eq('trip_id', tripId).eq('spot_name', spot).single()
-      if (row) {
-        await supabase.from('trip_spots').update({
-          visited: newVal,
-          visited_at: newVal ? new Date().toISOString() : null
-        }).eq('id', row.id)
-      }
+      fetch(`${API_BASE}/update-spot`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trip_id: tripId, spot_name: spot, visited: newVal })
+      }).catch(console.error)
     }
   }
 
-  // Save photo
+  // Save photo via backend
   async function handlePhoto(spot, url) {
     setSpotStatus(p => ({ ...p, [spot]: { ...p[spot], photo_url: url } }))
     if (tripId) {
-      const { data: row } = await supabase.from('trip_spots')
-        .select('id').eq('trip_id', tripId).eq('spot_name', spot).single()
-      if (row) {
-        await supabase.from('trip_spots').update({ photo_url: url }).eq('id', row.id)
-        // Auto-add to memories
-        await supabase.from('memories').insert({
+      // Update spot photo
+      fetch(`${API_BASE}/update-spot`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trip_id: tripId, spot_name: spot, photo_url: url })
+      }).catch(console.error)
+      // Save to memories
+      fetch(`${API_BASE}/save-memory`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           user_id: user.id, trip_id: tripId,
           title: `${spot} — ${place}`,
           description: spotStatus[spot].comment || `Visited during trip to ${place}`,
-          photo_url: url, created_at: new Date().toISOString()
+          photo_url: url
         })
-      }
+      }).catch(console.error)
     }
   }
 
-  // Save comment
+  // Save comment via backend
   async function saveComment(spot) {
     const comment = spotStatus[spot].comment
     setSpotStatus(p => ({ ...p, [spot]: { ...p[spot], editing: false } }))
     if (tripId) {
-      const { data: row } = await supabase.from('trip_spots')
-        .select('id').eq('trip_id', tripId).eq('spot_name', spot).single()
-      if (row) await supabase.from('trip_spots').update({ comment }).eq('id', row.id)
+      fetch(`${API_BASE}/update-spot`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trip_id: tripId, spot_name: spot, comment })
+      }).catch(console.error)
     }
   }
 
@@ -341,7 +343,7 @@ function Step5({ place, optimal_route, budget, days, transport, lang, onRestart 
     const visited = optimal_route.filter(s => spotStatus[s].visited)
     const missed  = optimal_route.filter(s => !spotStatus[s].visited)
     if (missed.length === 0) { setMissedSuggestion('🎉 You visited everything!'); return }
-    const res  = await fetch('/api/spots-suggestion', {
+    const res  = await fetch(`\${API_BASE}/spots-suggestion`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ place, completed: visited, remaining: missed, lang })
     })
