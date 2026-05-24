@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
-import PhotoUpload from '../components/PhotoUpload'
+import PhotoUpload from '../components/PhotoUpload.jsx'
 import './History.css'
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export default function History() {
   const { user } = useAuth()
@@ -19,18 +21,20 @@ export default function History() {
 
   async function fetchTrips() {
     setLoading(true)
-    const { data } = await supabase
-      .from('trips').select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-    setTrips(data || [])
+    try {
+      const res  = await fetch(`${API_BASE}/get-trips/${user.id}`)
+      const data = await res.json()
+      setTrips(data.trips || [])
+    } catch { setTrips([]) }
     setLoading(false)
   }
 
   async function fetchSpots(tripId) {
-    const { data } = await supabase
-      .from('trip_spots').select('*').eq('trip_id', tripId)
-    setSpots(prev => ({ ...prev, [tripId]: data || [] }))
+    try {
+      const res  = await fetch(`${API_BASE}/get-spots/${tripId}`)
+      const data = await res.json()
+      setSpots(prev => ({ ...prev, [tripId]: data.spots || [] }))
+    } catch { setSpots(prev => ({ ...prev, [tripId]: [] })) }
   }
 
   async function toggleExpand(tripId) {
@@ -41,33 +45,49 @@ export default function History() {
 
   async function saveComment(spot) {
     setSaving(true)
-    await supabase.from('trip_spots')
-      .update({ comment, visited: true, visited_at: new Date().toISOString() })
-      .eq('id', spot.id)
+    await fetch(`${API_BASE}/update-spot`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trip_id: spot.trip_id, spot_name: spot.spot_name, comment, visited: true })
+    })
     await fetchSpots(spot.trip_id)
     setComment(''); setActiveSpot(null)
     setSaving(false)
   }
 
   async function savePhoto(spot, url) {
-    await supabase.from('trip_spots').update({ photo_url: url }).eq('id', spot.id)
+    await fetch(`${API_BASE}/update-spot`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trip_id: spot.trip_id, spot_name: spot.spot_name, photo_url: url })
+    })
+    // Also save to memories
+    await fetch(`${API_BASE}/save-memory`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: user.id, trip_id: spot.trip_id,
+        title: `${spot.spot_name}`,
+        description: spot.comment || '',
+        photo_url: url
+      })
+    })
     await fetchSpots(spot.trip_id)
   }
 
   async function saveProblem(tripId) {
     if (!problem.trim()) return
     setSaving(true)
-    await supabase.from('past_problems').insert({
-      user_id: user.id, trip_id: tripId, problem_text: problem
-    })
+    try {
+      const sb = (await import('../lib/supabase.js')).supabase
+      await sb.from('past_problems').insert({ user_id: user.id, trip_id: tripId, problem_text: problem })
+    } catch(e) { console.error(e) }
     setProblem(''); setSaving(false)
-    alert('Problem saved! AI will use this to improve your next trip.')
+    alert('Problem saved! AI will use this for your next trip.')
   }
 
   async function deleteTrip(tripId) {
     if (!confirm('Delete this trip?')) return
-    await supabase.from('trip_spots').delete().eq('trip_id', tripId)
-    await supabase.from('trips').delete().eq('id', tripId)
+    const sb = (await import('../lib/supabase.js')).supabase
+    await sb.from('trip_spots').delete().eq('trip_id', tripId)
+    await sb.from('trips').delete().eq('id', tripId)
     fetchTrips()
   }
 
