@@ -5,17 +5,20 @@ import './TripTracker.css'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-export default function TripTracker({ spots, place, lang, tripId }) {
-  const { user }                      = useAuth()
-  const [spotRows, setSpotRows]       = useState([])
+// ─── Main TripTracker ─────────────────────────────────────────
+// hideChecklist=true → only shows Emergency section (used in Planner Step5
+// where the todo list is already rendered separately above)
+// hideChecklist=false (default) → shows full checklist + emergency (used in History)
+export default function TripTracker({ spots = [], place, lang, tripId, hideChecklist = false }) {
+  const { user }                        = useAuth()
+  const [spotRows, setSpotRows]         = useState([])
   const [localChecked, setLocalChecked] = useState({})
-  const [editingComment, setEditing]  = useState(null)
-  const [commentVal, setCommentVal]   = useState('')
-  const [suggestion, setSuggestion]   = useState('')
-  const [loadingSug, setLoadingSug]   = useState(false)
+  const [editingComment, setEditing]    = useState(null)
+  const [commentVal, setCommentVal]     = useState('')
+  const [suggestion, setSuggestion]     = useState('')
+  const [loadingSug, setLoadingSug]     = useState(false)
   const [showEmergency, setShowEmergency] = useState(false)
 
-  // Load spots from backend
   useEffect(() => {
     if (!tripId) return
     fetch(`${API_BASE}/get-spots/${tripId}`)
@@ -26,7 +29,7 @@ export default function TripTracker({ spots, place, lang, tripId }) {
 
   function getRow(spot) {
     if (tripId) return spotRows.find(r => r.spot_name === spot) || {}
-    return { spot_name: spot, visited: localChecked[spot] || false, photo_url: null, comment: null, id: null }
+    return { spot_name: spot, visited: localChecked[spot] || false, photo_url: null, comment: null }
   }
 
   const completed = tripId
@@ -50,8 +53,8 @@ export default function TripTracker({ spots, place, lang, tripId }) {
     }
 
     if (newVal) {
-      const done      = spots.filter(s => (tripId ? spotRows.find(r=>r.spot_name===s)?.visited : localChecked[s]) || s === spot)
-      const remaining = spots.filter(s => !(tripId ? spotRows.find(r=>r.spot_name===s)?.visited : localChecked[s]) && s !== spot)
+      const done      = spots.filter(s => getRow(s).visited || s === spot)
+      const remaining = spots.filter(s => !getRow(s).visited && s !== spot)
       if (remaining.length === 0) return
       setLoadingSug(true); setSuggestion('')
       try {
@@ -69,18 +72,21 @@ export default function TripTracker({ spots, place, lang, tripId }) {
   async function handlePhoto(spot, url) {
     setSpotRows(p => p.map(r => r.spot_name === spot ? { ...r, photo_url: url } : r))
     if (tripId) {
+      // Save photo to trip_spot
       fetch(`${API_BASE}/update-spot`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trip_id: tripId, spot_name: spot, photo_url: url })
       }).catch(console.error)
+      // Auto-save to memories
       if (user?.id) {
         fetch(`${API_BASE}/save-memory`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            user_id: user.id, trip_id: tripId,
-            title: `${spot} — ${place}`,
-            description: `Photo taken during trip to ${place}`,
-            photo_url: url
+            user_id:     user.id,
+            trip_id:     tripId,
+            title:       `${spot} — ${place}`,
+            description: getRow(spot).comment || `Photo from ${place}`,
+            photo_url:   url
           })
         }).catch(console.error)
       }
@@ -100,92 +106,102 @@ export default function TripTracker({ spots, place, lang, tripId }) {
 
   return (
     <div className="tracker">
-      {/* Header */}
-      <div className="tracker__header">
-        <div className="tracker__title-row">
-          <h3 className="tracker__title">📋 Trip Progress</h3>
-          <span className="tracker__count">{completed}/{total} visited</span>
-        </div>
-        <div className="tracker__bar-wrap">
-          <div className="tracker__bar" style={{ width:`${percent}%` }} />
-        </div>
-        <span className="tracker__percent">{percent}% complete</span>
-      </div>
 
-      {!tripId && (
-        <div className="tracker__note">
-          💡 Tick spots below. Photos & progress save once trip is confirmed.
-        </div>
-      )}
-
-      {/* Spots */}
-      <div className="tracker__list">
-        {spots.map((spot, i) => {
-          const row = getRow(spot)
-          return (
-            <div key={spot} className={`tracker__item ${row.visited ? 'done' : ''}`}
-              style={{ animationDelay:`${i*0.05}s` }}>
-
-              <div className="tracker__item-top">
-                <button className={`tracker__checkbox ${row.visited ? 'checked':''}`}
-                  onClick={() => handleTick(spot)}>
-                  {row.visited ? '✓' : ''}
-                </button>
-                <span className="tracker__spot-name">{spot}</span>
-                {row.visited && <span className="tracker__badge">Visited ✨</span>}
-              </div>
-
-              {row.visited && (
-                <div className="tracker__spot-extras">
-                  {/* Photo */}
-                  {row.photo_url
-                    ? <div className="tracker__photo-wrap">
-                        <img src={row.photo_url} alt={spot} className="tracker__photo" />
-                        <span className="tracker__photo-saved">✅ Saved to Memories</span>
-                      </div>
-                    : <PhotoUpload label={`📷 Add photo of ${spot}`}
-                        onUpload={url => handlePhoto(spot, url)} small />
-                  }
-                  {/* Comment */}
-                  {editingComment === spot
-                    ? <div className="tracker__comment-box">
-                        <textarea rows={2} placeholder="How was it? Any tips?"
-                          value={commentVal}
-                          onChange={e => setCommentVal(e.target.value)} autoFocus />
-                        <div style={{display:'flex',gap:'6px'}}>
-                          <button className="tracker__comment-save" onClick={() => saveComment(spot)}>Save</button>
-                          <button className="tracker__comment-save"
-                            style={{background:'var(--sand-2)',color:'var(--ink)'}}
-                            onClick={() => setEditing(null)}>Cancel</button>
-                        </div>
-                      </div>
-                    : <button className="tracker__comment-btn"
-                        onClick={() => { setEditing(spot); setCommentVal(row.comment||'') }}>
-                        {row.comment ? `💬 ${row.comment}` : '+ Add comment'}
-                      </button>
-                  }
-                </div>
-              )}
+      {/* ── Checklist section (hidden in Planner since todo-card handles it) ── */}
+      {!hideChecklist && (
+        <>
+          <div className="tracker__header">
+            <div className="tracker__title-row">
+              <h3 className="tracker__title">📋 Trip Progress</h3>
+              <span className="tracker__count">{completed}/{total} visited</span>
             </div>
-          )
-        })}
-      </div>
+            <div className="tracker__bar-wrap">
+              <div className="tracker__bar" style={{ width:`${percent}%` }} />
+            </div>
+            <span className="tracker__percent">{percent}% complete</span>
+          </div>
 
-      {/* AI Suggestion */}
-      {loadingSug && (
-        <div className="tracker__suggestion loading">
-          <span className="tracker__dots"><span/><span/><span/></span> Getting tip...
-        </div>
-      )}
-      {suggestion && !loadingSug && (
-        <div className="tracker__suggestion"><span>💡</span><p>{suggestion}</p></div>
+          {!tripId && (
+            <div className="tracker__note">
+              💡 Tick spots to track progress. Photos save once trip is confirmed.
+            </div>
+          )}
+
+          <div className="tracker__list">
+            {spots.map((spot, i) => {
+              const row = getRow(spot)
+              return (
+                <div key={spot}
+                  className={`tracker__item ${row.visited ? 'done' : ''}`}
+                  style={{ animationDelay:`${i*0.05}s` }}>
+
+                  <div className="tracker__item-top">
+                    <button
+                      className={`tracker__checkbox ${row.visited ? 'checked' : ''}`}
+                      onClick={() => handleTick(spot)}>
+                      {row.visited ? '✓' : ''}
+                    </button>
+                    <span className="tracker__spot-name">{spot}</span>
+                    {row.visited && <span className="tracker__badge">Visited ✨</span>}
+                  </div>
+
+                  {row.visited && (
+                    <div className="tracker__spot-extras">
+                      {/* Photo */}
+                      {row.photo_url
+                        ? <div className="tracker__photo-wrap">
+                            <img src={row.photo_url} alt={spot} className="tracker__photo" />
+                            <span className="tracker__photo-saved">✅ Saved to Memories</span>
+                          </div>
+                        : <PhotoUpload
+                            label={`📷 Add photo of ${spot}`}
+                            onUpload={url => handlePhoto(spot, url)}
+                            small
+                          />
+                      }
+                      {/* Comment */}
+                      {editingComment === spot
+                        ? <div className="tracker__comment-box">
+                            <textarea rows={2}
+                              placeholder="How was it? Any tips?"
+                              value={commentVal}
+                              onChange={e => setCommentVal(e.target.value)}
+                              autoFocus />
+                            <div style={{display:'flex',gap:'6px'}}>
+                              <button className="tracker__comment-save"
+                                onClick={() => saveComment(spot)}>Save</button>
+                              <button className="tracker__comment-save"
+                                style={{background:'var(--sand-2)',color:'var(--ink)'}}
+                                onClick={() => setEditing(null)}>Cancel</button>
+                            </div>
+                          </div>
+                        : <button className="tracker__comment-btn"
+                            onClick={() => { setEditing(spot); setCommentVal(row.comment||'') }}>
+                            {row.comment ? `💬 ${row.comment}` : '+ Add comment'}
+                          </button>
+                      }
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {loadingSug && (
+            <div className="tracker__suggestion loading">
+              <span className="tracker__dots"><span/><span/><span/></span> Getting tip...
+            </div>
+          )}
+          {suggestion && !loadingSug && (
+            <div className="tracker__suggestion"><span>💡</span><p>{suggestion}</p></div>
+          )}
+          {completed === total && total > 0 && (
+            <div className="tracker__complete">🎉 You visited all spots in {place}!</div>
+          )}
+        </>
       )}
 
-      {completed === total && total > 0 && (
-        <div className="tracker__complete">🎉 You visited all spots in {place}!</div>
-      )}
-
-      {/* Emergency section */}
+      {/* ── Emergency section (always shown) ── */}
       <button className="tracker__emergency-btn"
         onClick={() => setShowEmergency(s => !s)}>
         🚨 {showEmergency ? 'Hide' : 'Show'} Emergency Info
@@ -196,7 +212,7 @@ export default function TripTracker({ spots, place, lang, tripId }) {
   )
 }
 
-// ── Emergency Panel ───────────────────────────────────────────────────────────
+// ── Emergency Panel ────────────────────────────────────────────
 function EmergencyPanel({ place, lang }) {
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
@@ -212,26 +228,31 @@ function EmergencyPanel({ place, lang }) {
   }, [])
 
   const tabs = [
-    { key:'numbers',   icon:'📞', label:'Numbers'  },
-    { key:'hospitals', icon:'🏥', label:'Hospitals' },
-    { key:'police',    icon:'👮', label:'Police'    },
-    { key:'hotels',    icon:'🏨', label:'Hotels'    },
+    { key:'numbers',   icon:'📞', label:'Numbers'   },
+    { key:'hospitals', icon:'🏥', label:'Hospitals'  },
+    { key:'police',    icon:'👮', label:'Police'     },
+    { key:'hotels',    icon:'🏨', label:'Hotels'     },
   ]
 
-  if (loading) return <div className="emergency loading">Loading emergency info...</div>
-  if (!data)   return <div className="emergency error">Could not load emergency data.</div>
+  if (loading) return (
+    <div className="emergency loading">
+      <span className="tracker__dots"><span/><span/><span/></span> Loading emergency info...
+    </div>
+  )
+  if (!data) return <div className="emergency error">Could not load emergency data.</div>
 
   return (
     <div className="emergency">
       <div className="emergency__tabs">
         {tabs.map(t => (
           <button key={t.key}
-            className={`emergency__tab ${tab===t.key?'active':''}`}
+            className={`emergency__tab ${tab===t.key ? 'active' : ''}`}
             onClick={() => setTab(t.key)}>
             {t.icon} {t.label}
           </button>
         ))}
       </div>
+
       <div className="emergency__content">
         {tab === 'numbers' && data.emergency_numbers && (
           <div className="emergency__numbers">
