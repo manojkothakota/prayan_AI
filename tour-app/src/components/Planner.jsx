@@ -55,7 +55,7 @@ function Step0({ onNext }) {
       let missedData = { missed: [], suggestion: '' }
       if (user) {
         try {
-          const mr = await fetch(`\${API_BASE}/missed-places`, {
+          const mr = await fetch(`${API_BASE}/missed-places`, {
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ user_id: user.id, place: data.place, lang })
           })
@@ -278,7 +278,7 @@ function Step5({ place, optimal_route, budget, days, transport, lang, onRestart 
         // 2. Auto-save trip
         if (user) {
           try {
-            const res  = await fetch(`\${API_BASE}/save-trip`, {
+            const res  = await fetch(`${API_BASE}/save-trip`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ user_id: user.id, place, optimal_route, budget, days, transport, lang })
@@ -343,7 +343,7 @@ function Step5({ place, optimal_route, budget, days, transport, lang, onRestart 
     const visited = optimal_route.filter(s => spotStatus[s].visited)
     const missed  = optimal_route.filter(s => !spotStatus[s].visited)
     if (missed.length === 0) { setMissedSuggestion('🎉 You visited everything!'); return }
-    const res  = await fetch(`\${API_BASE}/spots-suggestion`, {
+    const res  = await fetch(`${API_BASE}/spots-suggestion`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ place, completed: visited, remaining: missed, lang })
     })
@@ -491,6 +491,17 @@ function Step5({ place, optimal_route, budget, days, transport, lang, onRestart 
             </div>
           )}
         </div>
+      )}
+
+      {/* ── Emergency + Progress (TripTracker) ── */}
+      {!loading && (
+        <TripTracker
+          spots={optimal_route}
+          place={place}
+          lang={lang}
+          tripId={tripId}
+          hideChecklist={true}
+        />
       )}
 
       {/* ── Cancel Trip ── */}
