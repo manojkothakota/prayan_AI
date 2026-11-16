@@ -22,8 +22,10 @@ app.add_middleware(
 # ── Two Groq clients — load balanced ────────────────────────────────────────
 # KEY_1 → heavy endpoints (itinerary, optimize-route, emergency)
 # KEY_2 → light endpoints  (spots, budget, duration, transport, suggestion, cancel)
-model_heavy = ChatGroq(api_key=os.getenv("GROQ_API_KEY_1"), model="llama-3.3-70b-versatile")
-model_light = ChatGroq(api_key=os.getenv("GROQ_API_KEY_2"), model="llama-3.3-70b-versatile")
+KEY_1 = os.getenv("GROQ_API_KEY_1") or os.getenv("GROQ_API_KEY")
+KEY_2 = os.getenv("GROQ_API_KEY_2") or KEY_1   # fall back to key 1 if key 2 missing
+model_heavy = ChatGroq(api_key=KEY_1, model="llama-3.3-70b-versatile")
+model_light = ChatGroq(api_key=KEY_2, model="llama-3.3-70b-versatile")
 
 def get_model(weight: str = "light"):
     return model_heavy if weight == "heavy" else model_light
@@ -48,9 +50,13 @@ def parse_json(text):
         return None
 
 def ask(system: str, human: str, lang: str = 'en', weight: str = 'light') -> str:
+    from fastapi import HTTPException
     full_system = system + lang_instruction(lang)
-    resp = get_model(weight).invoke([SystemMessage(content=full_system), HumanMessage(content=human)])
-    return resp.content.strip()
+    try:
+        resp = get_model(weight).invoke([SystemMessage(content=full_system), HumanMessage(content=human)])
+        return resp.content.strip()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Groq error: {e}")
 
 # ── Route Optimizer ──────────────────────────────────────────────────────────
 def build_dist(coords):
@@ -119,6 +125,19 @@ class CancelRequest(BaseModel):
 def root():
     return {"status": "AI Tour Guider API running"}
 
+@app.get("/health")
+def health():
+    return {
+        "key_1_set": bool(KEY_1),
+        "key_2_set": bool(KEY_2),
+        "supabase_url_set": bool(os.getenv("SUPABASE_URL")),
+        "supabase_key_set": bool(os.getenv("SUPABASE_SERVICE_KEY")),
+    }
+
+@app.get("/test-ai")
+def test_ai():
+    return {"reply": ask("Reply with one word.", "Say OK", "en", "light")}
+
 @app.get("/ping")
 def ping():
     return {"ok": True}
@@ -126,7 +145,7 @@ def ping():
 @app.post("/spots")
 def get_spots(req: PlaceRequest):
     raw = ask(
-        "You are a travel guide. Reply with ONLY all famous tourist spots in the given place. One name per line. No numbers, no descriptions, just names.",
+        "You are a travel guide. Reply with ONLY 6 famous tourist spots in the given place. One name per line. No numbers, no descriptions, just names.",
         req.place, req.lang
     )
     spots = [s.strip() for s in raw.split("\n") if s.strip()][:6]
@@ -162,9 +181,9 @@ Spots: {json.dumps(req.selected_spots)}""", 'en', 'heavy'  # coords always in En
 def get_budget(req: SpotsRequest):
     raw = ask(
         """Travel budget planner. Give exactly 3 budget tiers. Reply ONLY in this format:
-1. Budget    - <description> - Est. XX/day in indian rupees in reasonable way
-2. Mid-range - <description> - Est. XX/day in indian rupees in reasonable way
-3. Luxury    - <description> - Est. XX/day in indian rupees in reasonable way""",
+1. Budget    - <description> - Est. $XX/day
+2. Mid-range - <description> - Est. $XX/day
+3. Luxury    - <description> - Est. $XX/day""",
         f"Destination: {req.place}. Spots: {', '.join(req.selected_spots)}", req.lang
     )
     budgets = [b.strip() for b in raw.split("\n") if b.strip()]
@@ -189,14 +208,14 @@ def get_transport(req: PlaceRequest):
 Reply ONLY with this JSON:
 {{
   "to_destination": {{
-    "bus":  {{"available": true, "duration": "X hrs", "cost": "XX in indian rupees in reasonable way", "frequency": "every X hrs", "tip": "..."}},
-    "rail": {{"available": true, "duration": "X hrs", "cost": "XX in indian rupees in reasonable way", "frequency": "X trains/day", "tip": "..."}},
-    "air":  {{"available": true, "duration": "X hrs", "cost": "XX in indian rupees in reasonable way", "frequency": "X flights/day", "tip": "..."}}
+    "bus":  {{"available": true, "duration": "X hrs", "cost": "$XX", "frequency": "every X hrs", "tip": "..."}},
+    "rail": {{"available": true, "duration": "X hrs", "cost": "$XX", "frequency": "X trains/day", "tip": "..."}},
+    "air":  {{"available": true, "duration": "X hrs", "cost": "$XX", "frequency": "X flights/day", "tip": "..."}}
   }},
   "within_destination": {{
-    "bus":       {{"available": true, "cost_per_day": "XX in indian rupees in reasonable way", "tip": "..."}},
-    "rail":      {{"available": true, "cost_per_day": "XX in indian rupees in reasonable way", "tip": "..."}},
-    "auto_taxi": {{"available": true, "cost_per_day": "XX in indian rupees in reasonable way", "tip": "..."}}
+    "bus":       {{"available": true, "cost_per_day": "$XX", "tip": "..."}},
+    "rail":      {{"available": true, "cost_per_day": "$XX", "tip": "..."}},
+    "auto_taxi": {{"available": true, "cost_per_day": "$XX", "tip": "..."}}
   }}
 }}""", req.lang
     )
