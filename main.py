@@ -24,8 +24,11 @@ app.add_middleware(
 # KEY_2 → light endpoints  (spots, budget, duration, transport, suggestion, cancel)
 KEY_1 = os.getenv("GROQ_API_KEY_1") or os.getenv("GROQ_API_KEY")
 KEY_2 = os.getenv("GROQ_API_KEY_2") or KEY_1   # fall back to key 1 if key 2 missing
-model_heavy = ChatGroq(api_key=KEY_1, model="llama-3.3-70b-versatile")
-model_light = ChatGroq(api_key=KEY_2, model="llama-3.3-70b-versatile")
+# llama-3.3-70b-versatile was shut down by Groq on 16 Aug 2026.
+# Model is now configurable: set GROQ_MODEL in Render to switch without code changes.
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+model_heavy = ChatGroq(api_key=KEY_1, model=GROQ_MODEL)
+model_light = ChatGroq(api_key=KEY_2, model=GROQ_MODEL)
 
 def get_model(weight: str = "light"):
     return model_heavy if weight == "heavy" else model_light
@@ -128,6 +131,7 @@ def root():
 @app.get("/health")
 def health():
     return {
+        "model": GROQ_MODEL,
         "key_1_set": bool(KEY_1),
         "key_2_set": bool(KEY_2),
         "supabase_url_set": bool(os.getenv("SUPABASE_URL")),
